@@ -1,0 +1,946 @@
+import React, { useState } from 'react';
+import { 
+  Scissors, LayoutDashboard, Boxes, FileSpreadsheet, Settings, 
+  Printer, Plus, Trash2, Play, RefreshCw, 
+  Layers, QrCode, FileText, Download, Upload
+} from 'lucide-react';
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // Stock / Raw Materials
+  const [stocks, setStocks] = useState([
+    { id: 1, name: 'Plywood 18mm Standard', length: 2440, width: 1220, thickness: 18, quantity: 10, cost: 45.0 },
+    { id: 2, name: 'MDF 8mm Backing', length: 2440, width: 1220, thickness: 8, quantity: 5, cost: 25.0 }
+  ]);
+
+  // Parts List
+  const [parts, setParts] = useState([
+    { id: 1, name: 'Cabinet Left Side', length: 720, width: 560, quantity: 2, grain: true, edgeBanding: { top: true, bottom: true, left: false, right: true } },
+    { id: 2, name: 'Cabinet Right Side', length: 720, width: 560, quantity: 2, grain: true, edgeBanding: { top: true, bottom: true, left: false, right: true } },
+    { id: 3, name: 'Small Spacer Strip', length: 200, width: 100, quantity: 6, grain: false, edgeBanding: { top: false, bottom: false, left: false, right: false } },
+  ]);
+
+  // Settings with 2mm default edgeband thickness and 4-side trim
+  const [settings, setSettings] = useState({
+    kerf: 4,               
+    trimTop: 10,              
+    trimBottom: 10,              
+    trimLeft: 10,              
+    trimRight: 10,              
+    edgeBandThickness: 2   
+  });
+
+  // Print Report Selection
+  const [printOptions, setPrintOptions] = useState({
+    partsList: true,
+    layouts: true,
+    labels: true
+  });
+
+  // Optimization Results
+  const [results, setResults] = useState(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  // Handlers for Stock
+  const [newStock, setNewStock] = useState({ name: '', length: '', width: '', thickness: '', quantity: '', cost: '' });
+  const handleAddStock = (e) => {
+    e.preventDefault();
+    if (!newStock.name || !newStock.length || !newStock.width) return;
+    setStocks([...stocks, { id: Date.now(), ...newStock, length: Number(newStock.length), width: Number(newStock.width), quantity: Number(newStock.quantity), cost: Number(newStock.cost) }]);
+    setNewStock({ name: '', length: '', width: '', thickness: '', quantity: '', cost: '' });
+  };
+
+  // Handlers for Parts
+  const [newPart, setNewPart] = useState({ 
+    name: '', length: '', width: '', quantity: 1, grain: false, 
+    edgeBanding: { top: false, bottom: false, left: false, right: false } 
+  });
+
+  const handleAddPart = (e) => {
+    e.preventDefault();
+    if (!newPart.name || !newPart.length || !newPart.width) return;
+    setParts([...parts, { 
+      id: Date.now(), 
+      ...newPart, 
+      length: Number(newPart.length), 
+      width: Number(newPart.width), 
+      quantity: Number(newPart.quantity) 
+    }]);
+    setNewPart({ name: '', length: '', width: '', quantity: 1, grain: false, edgeBanding: { top: false, bottom: false, left: false, right: false } });
+  };
+
+  // Import CSV / Excel file mock parser
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const text = evt.target.result;
+        const lines = text.split('\n');
+        const parsedParts = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length >= 4) {
+            parsedParts.push({
+              id: Date.now() + i,
+              name: cols[0].replace(/"/g, '').trim() || `Imported Part ${i}`,
+              length: Number(cols[2]) || 500,
+              width: Number(cols[3]) || 400,
+              quantity: Number(cols[4]) || 1,
+              grain: false,
+              edgeBanding: { top: false, bottom: false, left: false, right: false }
+            });
+          }
+        }
+        if (parsedParts.length > 0) {
+          setParts(prev => [...prev, ...parsedParts]);
+          alert(`Successfully imported ${parsedParts.length} parts!`);
+        }
+      } catch (err) {
+        alert('Error parsing file. Please check format.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Optimization Engine with sequential numerical IDs (1, 2, 3...)
+  const runOptimization = () => {
+    setIsOptimizing(true);
+    setTimeout(() => {
+      let expandedParts = [];
+      let globalIndex = 1;
+      
+      parts.forEach((p) => {
+        for (let i = 0; i < p.quantity; i++) {
+          let effL = p.length;
+          let effW = p.width;
+          if (p.edgeBanding.top) effL -= settings.edgeBandThickness;
+          if (p.edgeBanding.bottom) effL -= settings.edgeBandThickness;
+          if (p.edgeBanding.left) effW -= settings.edgeBandThickness;
+          if (p.edgeBanding.right) effW -= settings.edgeBandThickness;
+
+          expandedParts.push({
+            id: globalIndex++, // Sequential numerical numbering 1, 2, 3...
+            name: p.name,
+            length: effL, 
+            width: effW, 
+            origLength: p.length, 
+            origWidth: p.width,   
+            grain: p.grain,
+            edgeBanding: p.edgeBanding
+          });
+        }
+      });
+
+      expandedParts.sort((a, b) => (b.length * b.width) - (a.length * a.width));
+
+      const stockItem = stocks[0] || { length: 2440, width: 1220 };
+      let sheets = [];
+      let unplaced = [...expandedParts];
+
+      const usableL = stockItem.length - (settings.trimLeft + settings.trimRight);
+      const usableW = stockItem.width - (settings.trimTop + settings.trimBottom);
+
+      while (unplaced.length > 0) {
+        let currentSheet = {
+          id: sheets.length + 1,
+          length: usableL,
+          width: usableW,
+          placedParts: [],
+          freeRects: [{ x: settings.trimLeft, y: settings.trimTop, w: usableL, h: usableW }]
+        };
+
+        let stillUnplaced = [];
+        
+        unplaced.forEach(part => {
+          let placed = false;
+          for (let i = 0; i < currentSheet.freeRects.length; i++) {
+            let fr = currentSheet.freeRects[i];
+            let fitsNormal = part.length <= fr.w && part.width <= fr.h;
+            let fitsRotated = !part.grain && part.width <= fr.w && part.length <= fr.h;
+
+            if (fitsNormal || fitsRotated) {
+              let useRotated = !fitsNormal && fitsRotated;
+              let pW = useRotated ? part.width : part.length;
+              let pH = useRotated ? part.length : part.width;
+              let pOrigW = useRotated ? part.origWidth : part.origLength;
+              let pOrigH = useRotated ? part.origLength : part.origWidth;
+              let pEB = useRotated ? { top: part.edgeBanding.left, bottom: part.edgeBanding.right, left: part.edgeBanding.top, right: part.edgeBanding.bottom } : part.edgeBanding;
+
+              currentSheet.placedParts.push({
+                ...part,
+                x: fr.x,
+                y: fr.y,
+                w: pW,
+                h: pH,
+                origW: pOrigW,
+                origH: pOrigH,
+                currentEB: pEB,
+                rotated: useRotated
+              });
+
+              currentSheet.freeRects.splice(i, 1);
+              if (fr.w - pW > settings.kerf) {
+                currentSheet.freeRects.push({ x: fr.x + pW + settings.kerf, y: fr.y, w: fr.w - pW - settings.kerf, h: pH });
+              }
+              if (fr.h - pH > settings.kerf) {
+                currentSheet.freeRects.push({ x: fr.x, y: fr.y + pH + settings.kerf, w: fr.w, h: fr.h - pH - settings.kerf });
+              }
+
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) stillUnplaced.push(part);
+        });
+
+        sheets.push(currentSheet);
+        unplaced = stillUnplaced;
+        if (sheets.length > 20) break;
+      }
+
+      let totalArea = sheets.length * stockItem.length * stockItem.width;
+      let usedArea = expandedParts.reduce((acc, p) => acc + (p.length * p.width), 0);
+      let wastePercentage = Math.max(0, 100 - ((usedArea / totalArea) * 100)).toFixed(1);
+
+      setResults({
+        sheets,
+        totalSheets: sheets.length,
+        wastePercentage,
+        expandedParts
+      });
+      setIsOptimizing(false);
+      setActiveTab('results');
+    }, 600);
+  };
+
+  const exportCSV = () => {
+    let csv = 'Part Name,ID,Length (mm),Width (mm),Quantity,Grain,Edge Banding Top,Bottom,Left,Right\n';
+    parts.forEach((p, idx) => {
+      csv += `"${p.name}",${idx + 1},${p.length},${p.width},${p.quantity},${p.grain},${p.edgeBanding.top},${p.edgeBanding.bottom},${p.edgeBanding.left},${p.edgeBanding.right}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', 'madcut_parts_list.csv');
+    a.click();
+  };
+
+  const exportExcelMock = () => {
+    exportCSV();
+  };
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-900 text-slate-100 font-sans text-base print:bg-white print:text-black print:h-auto print:w-auto print:overflow-visible">
+      
+      {/* Sleek, Compact Sidebar */}
+      <aside className="w-56 bg-slate-950 border-r border-slate-800 flex flex-col print:hidden shadow-xl shrink-0">
+        <div className="px-4 py-3.5 flex items-center gap-2.5 border-b border-slate-800">
+          <div className="bg-amber-500 p-1.5 rounded-none text-slate-950 font-extrabold">
+            <Scissors size={20} />
+          </div>
+          <div>
+            <h1 className="font-extrabold text-sm tracking-wide text-white">MadCut Master</h1>
+            <p className="text-[10px] font-semibold text-amber-400">Pro Optimizer</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+          <SidebarButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={16} />} label="Dashboard" />
+          <SidebarButton active={activeTab === 'stock'} onClick={() => setActiveTab('stock')} icon={<Boxes size={16} />} label="Raw Stock" />
+          <SidebarButton active={activeTab === 'parts'} onClick={() => setActiveTab('parts')} icon={<FileSpreadsheet size={16} />} label="Parts List" />
+          <SidebarButton active={activeTab === 'results'} onClick={() => setActiveTab('results')} icon={<Layers size={16} />} label="Cutting Layouts" disabled={!results} />
+          <SidebarButton active={activeTab === 'labels'} onClick={() => setActiveTab('labels')} icon={<QrCode size={16} />} label="QR Labels" disabled={!results} />
+          <SidebarButton active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} icon={<FileText size={16} />} label="Print Reports" disabled={!results} />
+          <SidebarButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings size={16} />} label="Settings" />
+        </nav>
+
+        <div className="p-3 border-t border-slate-800 bg-slate-950">
+          <button 
+            onClick={runOptimization}
+            disabled={isOptimizing || parts.length === 0}
+            className="w-full bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 text-slate-950 font-bold py-2.5 px-3 rounded-none flex items-center justify-center gap-2 transition shadow cursor-pointer text-xs uppercase tracking-wider"
+          >
+            {isOptimizing ? <RefreshCw className="animate-spin" size={16} /> : <Play size={16} />}
+            <span>{isOptimizing ? 'Optimizing...' : 'Optimize'}</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area - Full Width & Zero Horizontal Overflow */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden print:overflow-visible print:h-auto min-w-0">
+        
+        {/* Sleek Header */}
+        <header className="h-12 border-b border-slate-800 bg-slate-950/80 backdrop-blur px-6 flex items-center justify-between print:hidden shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2.5 py-0.5 font-bold">
+              Expanded Full-Width Workspace
+            </span>
+          </div>
+          <div className="flex items-center gap-5 text-xs font-semibold text-slate-300">
+            <span>Blade Kerf: <strong className="text-amber-400">{settings.kerf}mm</strong></span>
+            <span>Edge Band Default: <strong className="text-amber-400">{settings.edgeBandThickness}mm</strong></span>
+          </div>
+        </header>
+
+        {/* Dynamic Views Container with Internal Scrolling & No X-Scroll */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 print:p-0 print:overflow-visible">
+          
+          {/* DASHBOARD VIEW */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-amber-500/10 border-2 border-amber-500/30 p-8 rounded-none flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-3xl font-extrabold text-white mb-2">MadCut Master Control</h2>
+                  <p className="text-slate-200 text-base max-w-4xl font-medium">
+                    Fully optimized full-screen workspace with sleek headers, precise cross-hatched wastage metrics, prominent component dimensions, and scalable rendering for small cut parts.
+                  </p>
+                </div>
+                <button 
+                  onClick={runOptimization}
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-6 py-4 rounded-none flex items-center gap-3 shadow-xl text-base cursor-pointer shrink-0"
+                >
+                  <Play size={20} /> Run Optimization Now
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard title="Active Stock Sheets" value={stocks.reduce((acc, s) => acc + s.quantity, 0)} icon={<Boxes className="text-amber-400" size={28} />} />
+                <StatCard title="Parts to Cut" value={parts.reduce((acc, p) => acc + p.quantity, 0)} icon={<FileSpreadsheet className="text-amber-400" size={28} />} />
+                <StatCard title="Last Optimization Waste" value={results ? `${results.wastePercentage}%` : 'N/A'} icon={<Layers className="text-amber-400" size={28} />} />
+              </div>
+            </div>
+          )}
+
+          {/* STOCK VIEW */}
+          {activeTab === 'stock' && (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-extrabold text-white">Raw Material Inventory</h2>
+              <form onSubmit={handleAddStock} className="bg-slate-950 p-6 rounded-none border border-slate-800 grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+                <div className="md:col-span-2">
+                  <label className="text-sm font-bold text-slate-300 block mb-1">Material Name</label>
+                  <input type="text" placeholder="e.g. Plywood 18mm" value={newStock.name} onChange={e=>setNewStock({...newStock, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                </div>
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-1">Length (mm)</label>
+                  <input type="number" placeholder="2440" value={newStock.length} onChange={e=>setNewStock({...newStock, length: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                </div>
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-1">Width (mm)</label>
+                  <input type="number" placeholder="1220" value={newStock.width} onChange={e=>setNewStock({...newStock, width: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                </div>
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-1">Quantity</label>
+                  <input type="number" placeholder="10" value={newStock.quantity} onChange={e=>setNewStock({...newStock, quantity: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                </div>
+                <button type="submit" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 px-4 rounded-none flex items-center justify-center gap-2 cursor-pointer text-base">
+                  <Plus size={20} /> Add Stock
+                </button>
+              </form>
+
+              <div className="bg-slate-950 rounded-none border border-slate-800 overflow-hidden shadow-lg">
+                <table className="w-full text-left border-collapse text-base">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-300 bg-slate-900/80 font-bold">
+                      <th className="p-4">Material Name</th>
+                      <th className="p-4">Dimensions (L × W)</th>
+                      <th className="p-4">Thickness</th>
+                      <th className="p-4">Qty</th>
+                      <th className="p-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stocks.map(s => (
+                      <tr key={s.id} className="border-b border-slate-800/50 hover:bg-slate-900/30">
+                        <td className="p-4 font-bold text-white">{s.name}</td>
+                        <td className="p-4 font-medium">{s.length} × {s.width} mm</td>
+                        <td className="p-4 font-medium">{s.thickness || 18} mm</td>
+                        <td className="p-4 font-bold text-amber-400">{s.quantity}</td>
+                        <td className="p-4">
+                          <button onClick={()=>setStocks(stocks.filter(x=>x.id!==s.id))} className="text-red-400 hover:text-red-300 p-2"><Trash2 size={20}/></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* PARTS VIEW */}
+          {activeTab === 'parts' && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <h2 className="text-2xl font-extrabold text-white">Cut-list Required Parts</h2>
+                
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 text-sm font-bold flex items-center gap-2 border border-slate-700 cursor-pointer">
+                    <Upload size={18} /> Import CSV / Excel
+                    <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} className="hidden" />
+                  </label>
+                  <button onClick={exportExcelMock} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 text-sm font-bold flex items-center gap-2 border border-slate-700 cursor-pointer">
+                    <Download size={18} /> Export Excel (.xlsx)
+                  </button>
+                  <button onClick={exportCSV} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 text-sm font-bold flex items-center gap-2 border border-slate-700 cursor-pointer">
+                    <Download size={18} /> Export CSV
+                  </button>
+                </div>
+              </div>
+
+              <form onSubmit={handleAddPart} className="bg-slate-950 p-6 rounded-none border border-slate-800 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-bold text-slate-300 block mb-1">Part Name</label>
+                    <input type="text" placeholder="e.g. Cabinet Left Side" value={newPart.name} onChange={e=>setNewPart({...newPart, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-slate-300 block mb-1">Length (mm)</label>
+                    <input type="number" placeholder="720" value={newPart.length} onChange={e=>setNewPart({...newPart, length: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-slate-300 block mb-1">Width (mm)</label>
+                    <input type="number" placeholder="560" value={newPart.width} onChange={e=>setNewPart({...newPart, width: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-slate-300 block mb-1">Quantity</label>
+                    <input type="number" placeholder="2" value={newPart.quantity} onChange={e=>setNewPart({...newPart, quantity: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" required />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between pt-4 border-t border-slate-800 gap-4">
+                  <div className="flex flex-wrap items-center gap-6">
+                    <label className="flex items-center gap-2.5 text-base font-bold text-slate-200 cursor-pointer">
+                      <input type="checkbox" checked={newPart.grain} onChange={e=>setNewPart({...newPart, grain: e.target.checked})} className="w-5 h-5 rounded-none bg-slate-900 border-slate-700 text-amber-500" />
+                      <span>Lock Grain Direction</span>
+                    </label>
+                    <div className="flex items-center gap-4 text-base font-bold text-slate-200">
+                      <span className="text-xs font-extrabold text-amber-400 uppercase tracking-wide">Edge Banding:</span>
+                      {['top', 'bottom', 'left', 'right'].map(edge => (
+                        <label key={edge} className="flex items-center gap-1.5 cursor-pointer capitalize">
+                          <input type="checkbox" checked={newPart.edgeBanding[edge]} onChange={e=>setNewPart({...newPart, edgeBanding: {...newPart.edgeBanding, [edge]: e.target.checked}})} className="w-4 h-4 rounded-none bg-slate-900 border-slate-700 text-amber-500" />
+                          <span className="text-sm font-semibold">{edge}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <button type="submit" className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-3 px-6 rounded-none flex items-center gap-2 cursor-pointer text-base">
+                    <Plus size={20} /> Add Part
+                  </button>
+                </div>
+              </form>
+
+              <div className="bg-slate-950 rounded-none border border-slate-800 overflow-hidden shadow-lg">
+                <table className="w-full text-left border-collapse text-base">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-300 bg-slate-900/80 font-bold">
+                      <th className="p-4">#</th>
+                      <th className="p-4">Part Name</th>
+                      <th className="p-4">Dimensions (L × W)</th>
+                      <th className="p-4">Qty</th>
+                      <th className="p-4">Grain</th>
+                      <th className="p-4">Edge Banding</th>
+                      <th className="p-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parts.map((p, idx) => (
+                      <tr key={p.id} className="border-b border-slate-800/50 hover:bg-slate-900/30">
+                        <td className="p-4 font-extrabold text-amber-400">{idx + 1}</td>
+                        <td className="p-4 font-bold text-white">{p.name}</td>
+                        <td className="p-4 font-medium">{p.length} × {p.width} mm</td>
+                        <td className="p-4 font-bold text-amber-400">{p.quantity}</td>
+                        <td className="p-4 font-medium">{p.grain ? 'Locked' : 'Free'}</td>
+                        <td className="p-4 text-sm font-semibold text-slate-300">
+                          {Object.entries(p.edgeBanding).filter(([_,v])=>v).map(([k])=>k).join(', ') || 'None'}
+                        </td>
+                        <td className="p-4">
+                          <button onClick={()=>setParts(parts.filter(x=>x.id!==p.id))} className="text-red-400 hover:text-red-300 p-2"><Trash2 size={20}/></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* RESULTS VIEW */}
+          {activeTab === 'results' && results && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-white">Optimized Cutting Layouts</h2>
+                  <p className="text-sm font-bold text-amber-400">Bold underlined dimensions denote active edge banding specification</p>
+                </div>
+                <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 text-base font-bold flex items-center gap-2 border border-slate-700 cursor-pointer">
+                  <Printer size={20} /> Print / Export PDF
+                </button>
+              </div>
+
+              <div className="space-y-12">
+                {results.sheets.map(sheet => {
+                  const masterStockL = (sheet.length + settings.trimLeft + settings.trimRight);
+                  const masterStockW = (sheet.width + settings.trimTop + settings.trimBottom);
+                  const scaleX = 100 / masterStockL;
+                  const scaleY = 100 / masterStockW;
+
+                  const wasteZones = [];
+                  sheet.freeRects.forEach((fr, fIdx) => {
+                    if (fr.w > 15 && fr.h > 15) {
+                      wasteZones.push({
+                        id: `W-${fIdx}`,
+                        x: fr.x,
+                        y: fr.y,
+                        w: fr.w,
+                        h: fr.h
+                      });
+                    }
+                  });
+
+                  return (
+                    <div key={sheet.id} className="bg-white text-black border-4 border-black p-6 rounded-none shadow-xl break-after-page">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-black">
+                        <h3 className="font-extrabold text-lg flex items-center gap-3">
+                          <span className="bg-black text-white px-3 py-1 text-sm font-extrabold">SHEET #{sheet.id}</span>
+                          Plywood Stock Sheet ({masterStockL} × {masterStockW} mm)
+                        </h3>
+                        <span className="text-sm font-mono font-bold">Placed Parts: {sheet.placedParts.length} | Waste: {results.wastePercentage}%</span>
+                      </div>
+
+                      <div className="relative w-full bg-white border-2 border-black aspect-[2/1] min-h-[520px]">
+                        
+                        {wasteZones.map((waste, wIdx) => (
+                          <div
+                            key={`waste-${wIdx}`}
+                            style={{
+                              left: `${waste.x * scaleX}%`,
+                              top: `${waste.y * scaleY}%`,
+                              width: `${waste.w * scaleX}%`,
+                              height: `${waste.h * scaleY}%`,
+                              backgroundImage: `repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.12) 2px, transparent 0, transparent 8px)`
+                            }}
+                            className="absolute border border-dashed border-black/70 flex flex-col items-center justify-center p-1 overflow-hidden pointer-events-none"
+                          >
+                            <span className="bg-white px-1.5 py-0.5 border border-black font-mono font-black text-xs text-black shadow-sm">
+                              WASTE: {Math.round(waste.w)} × {Math.round(waste.h)} mm
+                            </span>
+                          </div>
+                        ))}
+
+                        {sheet.placedParts.map((part, idx) => {
+                          const ebTopActive = part.currentEB.top;
+                          const ebBotActive = part.currentEB.bottom;
+                          const ebLeftActive = part.currentEB.left;
+                          const ebRightActive = part.currentEB.right;
+
+                          const area = part.w * part.h;
+                          const isVerySmallPiece = area < 25000;
+
+                          return (
+                            <div 
+                              key={idx}
+                              style={{
+                                left: `${part.x * scaleX}%`,
+                                top: `${part.y * scaleY}%`,
+                                width: `${part.w * scaleX}%`,
+                                height: `${part.h * scaleY}%`,
+                              }}
+                              className="absolute bg-white border-2 border-black p-0.5 flex flex-col justify-between overflow-hidden rounded-none font-mono text-black shadow-sm"
+                            >
+                              {/* TOP DIMENSION */}
+                              <div className="text-center shrink-0 leading-none bg-white/95 z-10">
+                                <span className={`font-black ${ebTopActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>
+                                  {part.origW}mm
+                                </span>
+                              </div>
+
+                              {/* CENTER ORGANIZED CARD DATA */}
+                              <div className="text-center my-auto bg-slate-50 border-black py-0.5 px-0.5 flex flex-col justify-center">
+                                <span className="bg-black text-white font-black px-1 text-[9px] w-max mx-auto">#{part.id}</span>
+                                {!isVerySmallPiece && (
+                                  <p className="font-extrabold uppercase tracking-tight truncate leading-tight text-xs">{part.name}</p>
+                                )}
+                                <p className={`font-black text-black ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>Cut: {part.w}×{part.h}</p>
+                              </div>
+
+                              {/* BOTTOM DIMENSION */}
+                              <div className="text-center shrink-0 leading-none bg-white/95 z-10">
+                                <span className={`font-black ${ebBotActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>
+                                  {part.origW}mm
+                                </span>
+                              </div>
+
+                              {/* LEFT & RIGHT SIDES ROTATED & BOLD */}
+                              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-0.5 pointer-events-none z-10">
+                                <span 
+                                  style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}
+                                  className={`bg-white px-0.5 border-black/30 font-black ${ebLeftActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[8px]' : 'text-[11px]'}`}
+                                >
+                                  {part.origH}mm
+                                </span>
+                                <span 
+                                  style={{ writingMode: 'vertical-lr' }}
+                                  className={`bg-white px-0.5 font-black ${ebRightActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[8px]' : 'text-[11px]'}`}
+                                >
+                                  {part.origH}mm
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* LABELS VIEW */}
+          {activeTab === 'labels' && results && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-white">Cut Part Labels</h2>
+                  <p className="text-sm font-semibold text-slate-300">Clean, bold labels configured for workshop scanning</p>
+                </div>
+                <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 text-base font-bold flex items-center gap-2 border border-slate-700 cursor-pointer">
+                  <Printer size={20} /> Print Labels Grid
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3 print:gap-4">
+                {results.expandedParts.map((part, index) => {
+                  const structuredQRText = 
+                    `PART ID: ${part.id}\n` +
+                    `NAME: ${part.name}\n` +
+                    `OUTER LENGTH: ${part.origLength}mm\n` +
+                    `OUTER WIDTH: ${part.origWidth}mm\n` +
+                    `NET CUT LENGTH: ${part.length}mm\n` +
+                    `NET CUT WIDTH: ${part.width}mm\n` +
+                    `QUANTITY: 1\n` +
+                    `EDGE BANDING:\n` +
+                    `- Top: ${part.edgeBanding.top ? 'Yes' : 'No'}\n` +
+                    `- Bottom: ${part.edgeBanding.bottom ? 'Yes' : 'No'}\n` +
+                    `- Left: ${part.edgeBanding.left ? 'Yes' : 'No'}\n` +
+                    `- Right: ${part.edgeBanding.right ? 'Yes' : 'No'}`;
+
+                  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(structuredQRText)}`;
+
+                  return (
+                    <div key={index} className="bg-white text-black p-5 rounded-none border-4 border-black shadow-xl flex flex-col justify-between space-y-4 break-inside-avoid">
+                      <div className="flex justify-between items-start border-b-2 border-black pb-3">
+                        <div>
+                          <span className="text-xs font-black uppercase tracking-wider bg-black text-white px-2 py-0.5">LABEL #{part.id}</span>
+                          <h4 className="font-extrabold text-lg leading-tight mt-1.5 text-black">{part.name}</h4>
+                          <span className="text-xs font-mono font-bold text-slate-800">Part No: {part.id}</span>
+                        </div>
+                        <div className="bg-white p-1 border-2 border-black shrink-0">
+                          <img src={qrUrl} alt="QR Code" className="w-20 h-20 object-contain" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 text-sm gap-2 font-mono font-bold text-black border-t-2 border-dashed border-black pt-3">
+                        <div>Outer L: <span className="text-base font-black">{part.origLength} mm</span></div>
+                        <div>Outer W: <span className="text-base font-black">{part.origWidth} mm</span></div>
+                        <div className="col-span-2">Quantity: <span className="text-base font-black">{newPart.quantity} Unit</span></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* PRINT & PDF COMPILED REPORTS HUB */}
+          {activeTab === 'reports' && results && (
+            <div className="space-y-6 max-w-4xl mx-auto bg-slate-950 p-8 rounded-none border border-slate-800 shadow-xl print:bg-white print:text-black print:p-0 print:border-none print:shadow-none">
+              
+              {/* CONFIGURATION SCREEN (Hidden on Print) */}
+              <div className="print:hidden">
+                <h2 className="text-2xl font-extrabold text-white mb-2">A4 Report Generator & Compiled PDF Export</h2>
+                <p className="text-base font-semibold text-slate-300 mb-6">Select documentation sections to include in your compiled printable PDF package:</p>
+
+                <div className="space-y-5 border-y border-slate-800 py-6 mb-8">
+                  <label className="flex items-center gap-4 text-base font-bold text-slate-200 cursor-pointer">
+                    <input type="checkbox" checked={printOptions.partsList} onChange={e=>setPrintOptions({...printOptions, partsList: e.target.checked})} className="w-5 h-5 rounded-none bg-slate-900 border-slate-700 text-amber-500" />
+                    <span>Include Required Parts Summary Table</span>
+                  </label>
+                  <label className="flex items-center gap-4 text-base font-bold text-slate-200 cursor-pointer">
+                    <input type="checkbox" checked={printOptions.layouts} onChange={e=>setPrintOptions({...printOptions, layouts: e.target.checked})} className="w-5 h-5 rounded-none bg-slate-900 border-slate-700 text-amber-500" />
+                    <span>Include Optimized B&W Cutting Layout Diagrams</span>
+                  </label>
+                  <label className="flex items-center gap-4 text-base font-bold text-slate-200 cursor-pointer">
+                    <input type="checkbox" checked={printOptions.labels} onChange={e=>setPrintOptions({...printOptions, labels: e.target.checked})} className="w-5 h-5 rounded-none bg-slate-900 border-slate-700 text-amber-500" />
+                    <span>Include Part QR Labels Grid</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-4">
+                  <button onClick={() => window.print()} className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold px-8 py-4 rounded-none flex items-center gap-3 cursor-pointer text-base shadow-lg">
+                    <Printer size={20} /> Print / Export Compiled PDF Package
+                  </button>
+                </div>
+              </div>
+
+              {/* COMPILED PRINT DOCUMENT CONTAINER (Visible only during Print / PDF generation) */}
+              <div className="hidden print:block space-y-10 text-black">
+                
+                {/* 1. COMPILED PARTS LIST SECTION */}
+                {printOptions.partsList && (
+                  <div className="space-y-4 break-after-page">
+                    <div className="border-b-4 border-black pb-3">
+                      <h1 className="text-3xl font-black uppercase">MadCut Master - Required Parts Summary</h1>
+                      <p className="text-sm font-bold text-slate-700">Compiled Production Documentation</p>
+                    </div>
+                    <table className="w-full text-left border-collapse border-2 border-black text-sm">
+                      <thead>
+                        <tr className="bg-black text-white font-bold">
+                          <th className="p-3 border border-black">#</th>
+                          <th className="p-3 border border-black">Part Name</th>
+                          <th className="p-3 border border-black">Dimensions (L × W)</th>
+                          <th className="p-3 border border-black">Qty</th>
+                          <th className="p-3 border border-black">Grain</th>
+                          <th className="p-3 border border-black">Edge Banding</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parts.map((p, idx) => (
+                          <tr key={p.id} className="border-b border-black">
+                            <td className="p-3 border border-black font-black">{idx + 1}</td>
+                            <td className="p-3 border border-black font-bold">{p.name}</td>
+                            <td className="p-3 border border-black font-medium">{p.length} × {p.width} mm</td>
+                            <td className="p-3 border border-black font-bold">{p.quantity}</td>
+                            <td className="p-3 border border-black font-medium">{p.grain ? 'Locked' : 'Free'}</td>
+                            <td className="p-3 border border-black font-semibold">
+                              {Object.entries(p.edgeBanding).filter(([_,v])=>v).map(([k])=>k).join(', ') || 'None'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* 2. COMPILED CUTTING LAYOUTS SECTION */}
+                {printOptions.layouts && results.sheets.map(sheet => {
+                  const masterStockL = (sheet.length + settings.trimLeft + settings.trimRight);
+                  const masterStockW = (sheet.width + settings.trimTop + settings.trimBottom);
+                  const scaleX = 100 / masterStockL;
+                  const scaleY = 100 / masterStockW;
+
+                  const wasteZones = [];
+                  sheet.freeRects.forEach((fr, fIdx) => {
+                    if (fr.w > 15 && fr.h > 15) {
+                      wasteZones.push({ id: `W-${fIdx}`, x: fr.x, y: fr.y, w: fr.w, h: fr.h });
+                    }
+                  });
+
+                  return (
+                    <div key={`print-sheet-${sheet.id}`} className="bg-white text-black border-4 border-black p-6 break-after-page">
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-black">
+                        <h3 className="font-extrabold text-xl flex items-center gap-3">
+                          <span className="bg-black text-white px-3 py-1 text-sm font-extrabold">SHEET #{sheet.id}</span>
+                          Cutting Layout ({masterStockL} × {masterStockW} mm)
+                        </h3>
+                        <span className="text-sm font-mono font-bold">Placed Parts: {sheet.placedParts.length} | Waste: {results.wastePercentage}%</span>
+                      </div>
+
+                      <div className="relative w-full bg-white border-2 border-black aspect-[2/1] min-h-[500px]">
+                        {wasteZones.map((waste, wIdx) => (
+                          <div
+                            key={`print-w-${wIdx}`}
+                            style={{
+                              left: `${waste.x * scaleX}%`,
+                              top: `${waste.y * scaleY}%`,
+                              width: `${waste.w * scaleX}%`,
+                              height: `${waste.h * scaleY}%`,
+                              backgroundImage: `repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.12) 2px, transparent 0, transparent 8px)`
+                            }}
+                            className="absolute border border-dashed border-black/70 flex flex-col items-center justify-center p-1 overflow-hidden pointer-events-none"
+                          >
+                            <span className="bg-white px-1 py-0.5 border border-black font-mono font-black text-xs text-black">
+                              WASTE: {Math.round(waste.w)} × {Math.round(waste.h)} mm
+                            </span>
+                          </div>
+                        ))}
+
+                        {sheet.placedParts.map((part, idx) => {
+                          const ebTopActive = part.currentEB.top;
+                          const ebBotActive = part.currentEB.bottom;
+                          const ebLeftActive = part.currentEB.left;
+                          const ebRightActive = part.currentEB.right;
+                          const area = part.w * part.h;
+                          const isVerySmallPiece = area < 25000;
+
+                          return (
+                            <div 
+                              key={`print-part-${idx}`}
+                              style={{
+                                left: `${part.x * scaleX}%`,
+                                top: `${part.y * scaleY}%`,
+                                width: `${part.w * scaleX}%`,
+                                height: `${part.h * scaleY}%`,
+                              }}
+                              className="absolute bg-white border-2 border-black p-0.5 flex flex-col justify-between overflow-hidden rounded-none font-mono text-black shadow-sm"
+                            >
+                              <div className="text-center shrink-0 leading-none bg-white/95 z-10">
+                                <span className={`font-black ${ebTopActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>
+                                  {part.origW}mm
+                                </span>
+                              </div>
+
+                              <div className="text-center my-auto bg-slate-50 border border-black py-0.5 px-0.5 flex flex-col justify-center">
+                                <span className="bg-black text-white font-black px-1 text-[9px] w-max mx-auto">#{part.id}</span>
+                                {!isVerySmallPiece && (
+                                  <p className="font-extrabold uppercase tracking-tight truncate leading-tight text-xs">{part.name}</p>
+                                )}
+                                <p className={`font-black text-black ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>Cut: {part.w}×{part.h}</p>
+                              </div>
+
+                              <div className="text-center shrink-0 leading-none bg-white/95 z-10">
+                                <span className={`font-black ${ebBotActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>
+                                  {part.origW}mm
+                                </span>
+                              </div>
+
+                              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-0.5 pointer-events-none z-10">
+                                <span 
+                                  style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)' }}
+                                  className={`bg-white px-0.5 border border-black/30 font-black ${ebLeftActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[8px]' : 'text-[11px]'}`}
+                                >
+                                  {part.origH}mm
+                                </span>
+                                <span 
+                                  style={{ writingMode: 'vertical-lr' }}
+                                  className={`bg-white px-0.5 border border-black/30 font-black ${ebRightActive ? 'underline decoration-2 decoration-black' : ''} ${isVerySmallPiece ? 'text-[8px]' : 'text-[11px]'}`}
+                                >
+                                  {part.origH}mm
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 3. COMPILED QR LABELS SECTION */}
+                {printOptions.labels && (
+                  <div className="space-y-6 break-after-page">
+                    <div className="border-b-4 border-black pb-3">
+                      <h1 className="text-3xl font-black uppercase">MadCut Master - Part QR Labels</h1>
+                      <p className="text-sm font-bold text-slate-700">Compiled Workshop Scanning Grid</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      {results.expandedParts.map((part, index) => {
+                        const structuredQRText = 
+                          `PART ID: ${part.id}\nNAME: ${part.name}\n` +
+                          `OUTER L: ${part.origLength}mm | W: ${part.origWidth}mm\n` +
+                          `CUT L: ${part.length}mm | W: ${part.width}mm`;
+                        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(structuredQRText)}`;
+
+                        return (
+                          <div key={`print-label-${index}`} className="bg-white text-black p-4 border-4 border-black flex flex-col justify-between space-y-3 break-inside-avoid">
+                            <div className="flex justify-between items-start border-b-2 border-black pb-2">
+                              <div>
+                                <span className="text-[10px] font-black uppercase bg-black text-white px-1.5 py-0.5">LABEL #{part.id}</span>
+                                <h4 className="font-extrabold text-base leading-tight mt-1">{part.name}</h4>
+                              </div>
+                              <img src={qrUrl} alt="QR" className="w-16 h-16 object-contain border border-black p-0.5" />
+                            </div>
+                            <div className="grid grid-cols-2 text-xs font-mono font-bold border-t border-dashed border-black pt-2">
+                              <div>Outer L: <span className="font-black">{part.origLength}mm</span></div>
+                              <div>Outer W: <span className="font-black">{part.origWidth}mm</span></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          )}
+
+          {/* SETTINGS VIEW */}
+          {activeTab === 'settings' && (
+            <div className="space-y-6 max-w-3xl mx-auto bg-slate-950 p-8 rounded-none border border-slate-800 shadow-xl">
+              <h2 className="text-2xl font-extrabold text-white">Cutting Parameters & Edge Banding</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-bold text-slate-300 block mb-1">Saw Blade Kerf / Thickness (mm)</label>
+                  <input type="number" value={settings.kerf} onChange={e=>setSettings({...settings, kerf: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" />
+                </div>
+                
+                <div className="border-t border-slate-800 pt-5">
+                  <h3 className="text-base font-extrabold text-amber-400 mb-3">Sheet Trim Allowance on 4 Sides (mm)</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 block mb-1">Trim Top (mm)</label>
+                      <input type="number" value={settings.trimTop} onChange={e=>setSettings({...settings, trimTop: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 block mb-1">Trim Bottom (mm)</label>
+                      <input type="number" value={settings.trimBottom} onChange={e=>setSettings({...settings, trimBottom: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 block mb-1">Trim Left (mm)</label>
+                      <input type="number" value={settings.trimLeft} onChange={e=>setSettings({...settings, trimLeft: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 block mb-1">Trim Right (mm)</label>
+                      <input type="number" value={settings.trimRight} onChange={e=>setSettings({...settings, trimRight: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-800 pt-5">
+                  <label className="text-sm font-bold text-slate-300 block mb-1">Default Edge Band Thickness (mm)</label>
+                  <input type="number" value={settings.edgeBandThickness} onChange={e=>setSettings({...settings, edgeBandThickness: Number(e.target.value)})} className="w-full bg-slate-900 border border-slate-700 rounded-none px-4 py-3 text-white text-base font-medium" min="1" max="10" />
+                  <p className="text-xs font-semibold text-amber-400 mt-1.5">Default set to 2mm. Automatically deducts from net cutting size when enabled.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function SidebarButton({ active, onClick, icon, label, disabled }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-none text-xs font-bold transition cursor-pointer ${
+        active 
+          ? 'bg-amber-500 text-slate-950 font-extrabold shadow' 
+          : 'text-slate-300 hover:bg-slate-900 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function StatCard({ title, value, icon }) {
+  return (
+    <div className="bg-slate-950 border border-slate-800 p-6 rounded-none flex items-center justify-between shadow-lg">
+      <div>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
+        <h3 className="text-3xl font-extrabold text-white">{value}</h3>
+      </div>
+      <div className="bg-slate-900 p-3.5 rounded-none border border-slate-800 shadow-inner">
+        {icon}
+      </div>
+    </div>
+  );
+}

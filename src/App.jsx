@@ -700,7 +700,7 @@ export default function App() {
                             }}
                             className="absolute border border-dashed border-black/70 flex flex-col items-center justify-center p-1 overflow-hidden pointer-events-none"
                           >
-                            <span className="bg-white px-1.5 py-0.5 border border-black font-mono font-black text-xs text-black shadow-sm">
+                            <span className="bg-white px-1.5 py-0.5  border-black font-mono font-black text-xs text-black shadow-sm">
                               WASTE: {Math.round(waste.w)} × {Math.round(waste.h)} mm
                             </span>
                           </div>
@@ -937,7 +937,7 @@ export default function App() {
                             }}
                             className="absolute border border-dashed border-black/70 flex flex-col items-center justify-center p-1 overflow-hidden pointer-events-none"
                           >
-                            <span className="bg-white px-1 py-0.5 border border-black font-mono font-black text-xs text-black">
+                            <span className="bg-white px-1 py-0.5 border-black font-mono font-black text-xs text-black">
                               WASTE: {Math.round(waste.w)} × {Math.round(waste.h)} mm
                             </span>
                           </div>
@@ -968,7 +968,7 @@ export default function App() {
                                 </span>
                               </div>
 
-                              <div className="text-center my-auto bg-slate-50 border border-black py-0.5 px-0.5 flex flex-col justify-center">
+                              <div className="text-center my-auto bg-slate-50  border-black py-0.5 px-0.5 flex flex-col justify-center">
                                 <span className="bg-black text-white font-black px-1 text-[9px] w-max mx-auto">#{part.id}</span>
                                 {!isVerySmallPiece && (
                                   <p className="font-extrabold uppercase tracking-tight truncate leading-tight text-xs">{part.name}</p>

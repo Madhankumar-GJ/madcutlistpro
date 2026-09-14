@@ -737,7 +737,7 @@ export default function App() {
                               <div className="text-center my-auto bg-slate-50 border-black py-0.5 px-0.5 flex flex-col justify-center">
                                 <span className="bg-black text-white font-black px-1 text-[9px] w-max mx-auto">#{part.id}</span>
                                 {!isVerySmallPiece && (
-                                  <p className="font-extrabold uppercase tracking-tight truncate leading-tight text-xs">{part.name}</p>
+                                  <p className="font-extrabold uppercase tracking-tight px-5 leading-tight text-xs">{part.name}</p>
                                 )}
                                 <p className={`font-bold text-black ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>Cut: {part.w}×{part.h}</p>
                               </div>
@@ -810,14 +810,14 @@ export default function App() {
                       <div className="flex-1 min-w-0 flex flex-col justify-between space-y-1">
                         <div>
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-black uppercase bg-black text-white px-1.5 py-0.2">#{part.id}</span>
+                            <span className="text-[12px] font-black uppercase bg-white text-black px-1.5 py-0.2">#{part.id}</span>
                             <span className="text-[10px] font-bold bg-amber-200 text-black px-1 py-0.2 border border-black">Qty: {part.quantity}</span>
                           </div>
-                          <h4 className="font-extrabold text-xs leading-tight mt-1 text-black truncate">{part.name}</h4>
+                          <h4 className="font-extrabold text-xs leading-tight mt-1 text-black ">{part.name}</h4>
                         </div>
 
-                        <div className="font-mono text-xs font-bold text-black border-t border-black pt-1 space-y-0.5">
-                          <div>Size: <span className="font-black">{part.origLength} × {part.origWidth}mm</span></div>
+                        <div className=" text-xs font-bold text-black border-t border-black pt-1 space-y-0.5">
+                          <div>Size: <span className="font-black text-[14px]">{part.origLength} mm × {part.origWidth} mm</span></div>
                           <div>Thk: <span className="font-black text-amber-800">{part.thickness || 18}mm</span></div>
                         </div>
                       </div>
@@ -872,7 +872,7 @@ export default function App() {
                     </div>
                     <table className="w-full text-left border-collapse border-2 border-black text-sm">
                       <thead>
-                        <tr className="bg-black text-white font-bold">
+                        <tr className="bg-black text-black font-bold">
                           <th className="p-3 border border-black">#</th>
                           <th className="p-3 border border-black">Part Name</th>
                           <th className="p-3 border border-black">Dimensions (L × W × Thk)</th>
@@ -918,7 +918,7 @@ export default function App() {
                     <div key={`print-sheet-${sheet.id}`} className="bg-white text-black border-4 border-black p-6 break-after-page">
                       <div className="flex items-center justify-between mb-4 pb-3 border-b-2 border-black">
                         <h3 className="font-extrabold text-xl flex items-center gap-3">
-                          <span className="bg-black text-white px-3 py-1 text-sm font-extrabold">SHEET #{sheet.id}</span>
+                          <span className="bg-black text-black px-3 py-1 text-sm font-extrabold">SHEET #{sheet.id}</span>
                           Cutting Layout ({masterStockL} × {masterStockW} × {sheetThk}mm Thickness)
                         </h3>
                         <span className="text-sm font-mono font-bold">Placed Parts: {sheet.placedParts.length} | Waste: {results.wastePercentage}%</span>
@@ -969,9 +969,9 @@ export default function App() {
                               </div>
 
                               <div className="text-center my-auto bg-slate-50  border-black py-0.5 px-0.5 flex flex-col justify-center">
-                                <span className="bg-black text-white font-black px-1 text-[9px] w-max mx-auto">#{part.id}</span>
+                                <span className="bg-black text-black font-black px-1 text-[9px] w-max mx-auto">#{part.id}</span>
                                 {!isVerySmallPiece && (
-                                  <p className="font-extrabold uppercase tracking-tight truncate leading-tight text-xs">{part.name}</p>
+                                  <p className="font-extrabold uppercase tracking-tight px-5 py-1 leading-tight text-xs">{part.name}</p>
                                 )}
                                 <p className={`font-bold text-black ${isVerySmallPiece ? 'text-[9px]' : 'text-xs'}`}>Cut: {part.w}×{part.h}</p>
                               </div>
@@ -1026,11 +1026,11 @@ export default function App() {
                             </div>
                             <div className="flex-1 min-w-0 flex flex-col justify-between space-y-1">
                               <div>
-                                <span className="text-[9px] font-black uppercase bg-black text-white px-1 py-0.2">#{part.id}</span>
-                                <h4 className="font-extrabold text-xs leading-tight mt-0.5 truncate">{part.name}</h4>
+                                <span className="text-[12px] font-black uppercase bg-black text-black px-1 py-0.2">#{part.id}</span>
+                                <h4 className="font-extrabold text-xs leading-tight mt-0.5 ">{part.name}</h4>
                               </div>
-                              <div className="font-mono text-[10px] font-bold border-t border-black pt-0.5 space-y-0.2">
-                                <div>Size: <span className="font-black">{part.origLength}×{part.origWidth}mm</span></div>
+                              <div className="text-[12px] font-bold border-t border-black pt-0.5 space-y-0.2">
+                                <div>Size: <span className="font-black text-[14px]">{part.origLength} mm × {part.origWidth} mm</span></div>
                                 <div>Thk: <span className="font-black text-black">{part.thickness || 18}mm</span></div>
                               </div>
                             </div>
